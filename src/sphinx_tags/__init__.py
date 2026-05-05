@@ -17,6 +17,13 @@ __version__ = "0.2.1"
 logger = getLogger("sphinx-tags")
 
 
+def _write_if_changed(filename: Path, content: str) -> None:
+    """Write content without touching files that are already up to date."""
+    if filename.exists() and filename.read_text(encoding="utf8") == content:
+        return
+    filename.write_text(content, encoding="utf8")
+
+
 class TagLinks(SphinxDirective):
     """Custom directive for adding tags to Sphinx-generated files.
 
@@ -181,10 +188,10 @@ class Tag:
                 content.append(f"    ../{relpath}")
 
         content.append("")
-        with open(
-            os.path.join(srcdir, tags_output_dir, filename), "w", encoding="utf8"
-        ) as f:
-            f.write("\n".join(content))
+        _write_if_changed(
+            Path(srcdir) / tags_output_dir / filename,
+            "\n".join(content),
+        )
 
 
 class Entry:
@@ -267,8 +274,7 @@ def tagpage(tags, outdir, title, extension, tags_index_head):
         content.append("")
         filename = os.path.join(outdir, "tagsindex.rst")
 
-    with open(filename, "w", encoding="utf8") as f:
-        f.write("\n".join(content))
+    _write_if_changed(Path(filename), "\n".join(content))
 
 
 def assign_entries(app):
@@ -296,12 +302,17 @@ def update_tags(app):
         if not os.path.exists(os.path.join(app.srcdir, tags_output_dir)):
             os.makedirs(os.path.join(app.srcdir, tags_output_dir))
 
-        for file in os.listdir(os.path.join(app.srcdir, tags_output_dir)):
-            if file.endswith("md") or file.endswith("rst"):
-                os.remove(os.path.join(app.srcdir, tags_output_dir, file))
-
         # Create pages for each tag
         tags, pages = assign_entries(app)
+        output_extension = "md" if "md" in app.config.tags_extension else "rst"
+        expected_files = {f"tagsindex.{output_extension}"}
+        for tag in tags.values():
+            expected_files.add(f"{tag.name.replace(' ', '_')}.{output_extension}")
+
+        for file in os.listdir(os.path.join(app.srcdir, tags_output_dir)):
+            if file.endswith((".md", ".rst")) and file not in expected_files:
+                os.remove(Path(app.srcdir) / tags_output_dir / file)
+
         for tag in tags.values():
             tag.create_file(
                 [item for item in pages if tag.name in item.tags],
